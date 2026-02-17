@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "iphone-cli"
+version = "0.1.0"
+description = "Give AI agents eyes and hands on any iPhone app"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "pymobiledevice3>=4.0.0",
+    "click>=8.0",
+    "Pillow>=10.0",
+    "requests>=2.31",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0.0"]
+
+[project.scripts]
+iphone = "iphone_cli.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["iphone_cli*"]
