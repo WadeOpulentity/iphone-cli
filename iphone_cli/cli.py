@@ -285,52 +285,70 @@ def find(ctx, text: str):
 def scroll_to(ctx, text: str, tap: bool, max_scrolls: int):
     """Scroll until an element with matching text is visible, then tap it.
 
+    Uses W3C pointer actions (via wda.swipe) for real iOS momentum scrolling.
+    Batches multiple scrolls when the target is far away.
+
     Usage:
         iphone scroll-to "Post your reply"
         iphone scroll-to "Settings" --no-tap
     """
     import time
+    from requests.exceptions import ConnectionError as ReqConnectionError
 
     wda = get_wda(ctx.obj["wda_url"])
     VISIBLE_TOP = 150
     VISIBLE_BOTTOM = 750
+    retries_left = 2
 
-    for attempt in range(max_scrolls + 1):
-        results = wda.find_by_text(text)
+    def _wda_call(fn, *args, **kwargs):
+        nonlocal retries_left
+        try:
+            return fn(*args, **kwargs)
+        except (ReqConnectionError, OSError, ConnectionRefusedError):
+            if retries_left <= 0:
+                raise
+            retries_left -= 1
+            time.sleep(1)
+            return fn(*args, **kwargs)
 
-        if not results:
-            # Not in tree at all -- scroll down and retry
-            if attempt < max_scrolls:
-                wda.swipe(200, 600, 200, 200, duration=0.3)
-                time.sleep(0.3)
-                continue
-            output_json({"error": f"'{text}' not found after {max_scrolls} scrolls"})
-            return
+    def _pick_best(results):
+        """Pick best match — prefer StaticText over images to avoid long-press."""
+        text_types = ("StaticText", "Button", "Link")
+        text_results = [m for m in results if m.get("type", "").replace("XCUIElementType", "") in text_types]
+        pool = text_results if text_results else results
 
-        # Find best match (closest to or inside visible area)
         best = None
         best_dist = float("inf")
-        for m in results:
+        for m in pool:
             cy = m.get("center", [0, 0])[1]
             if VISIBLE_TOP <= cy <= VISIBLE_BOTTOM:
-                best = m
-                best_dist = 0
-                break
+                return m, 0
             dist = min(abs(cy - VISIBLE_TOP), abs(cy - VISIBLE_BOTTOM))
             if dist < best_dist:
                 best = m
                 best_dist = dist
+        return (best or pool[0]), best_dist
 
-        if not best:
-            best = results[0]
+    for attempt in range(max_scrolls + 1):
+        results = _wda_call(wda.find_by_text, text)
 
+        if not results:
+            if attempt < max_scrolls:
+                # Not in tree — fast scroll to load more content
+                _wda_call(wda.swipe, 200, 600, 200, 200, duration=0.15)
+                time.sleep(0.5)
+                continue
+            output_json({"error": f"'{text}' not found after {max_scrolls} scrolls"})
+            return
+
+        best, dist = _pick_best(results)
         cx, cy = best["center"]
 
-        # Already visible -- done
+        # Already visible — done
         if VISIBLE_TOP <= cy <= VISIBLE_BOTTOM:
             _save_last_find([best])
             if tap:
-                wda.tap(cx, cy)
+                _wda_call(wda.tap, cx, cy)
                 output_json({
                     "status": "found_and_tapped",
                     "label": best.get("label", text)[:100],
@@ -344,12 +362,16 @@ def scroll_to(ctx, text: str, tap: bool, max_scrolls: int):
                 })
             return
 
-        # Off-screen -- scroll toward it
-        if cy < VISIBLE_TOP:
-            wda.swipe(200, 200, 200, 600, duration=0.3)
-        else:
-            wda.swipe(200, 600, 200, 200, duration=0.3)
-        time.sleep(0.3)
+        # Off-screen — batch fast swipes based on distance
+        direction = "down" if cy > VISIBLE_BOTTOM else "up"
+        num_swipes = min(max(dist // 400, 1), 4)
+
+        for _ in range(num_swipes):
+            if direction == "down":
+                _wda_call(wda.swipe, 200, 600, 200, 200, duration=0.15)
+            else:
+                _wda_call(wda.swipe, 200, 200, 200, 600, duration=0.15)
+            time.sleep(0.4)
 
     output_json({"error": f"Could not bring '{text}' into view after {max_scrolls} scrolls"})
 

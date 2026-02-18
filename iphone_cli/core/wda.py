@@ -147,12 +147,33 @@ class WDAClient:
         })
 
     def swipe(self, x1: int, y1: int, x2: int, y2: int, duration: float = 0.5) -> dict:
-        """Swipe from (x1,y1) to (x2,y2)."""
-        return self._post(f"{self._s()}/wda/dragfromtoforduration", {
-            "fromX": x1, "fromY": y1,
-            "toX": x2, "toY": y2,
-            "duration": duration,
-        })
+        """Swipe from (x1,y1) to (x2,y2) using W3C pointer actions for real momentum.
+
+        Uses a fast finger move to generate iOS scroll inertia, unlike
+        dragfromtoforduration which drags with zero momentum.
+        """
+        # Convert duration to ms for W3C actions (clamped for good momentum)
+        ms = max(80, min(int(duration * 1000), 300))
+        actions = [{
+            "type": "pointer",
+            "id": "swipe1",
+            "parameters": {"pointerType": "touch"},
+            "actions": [
+                {"type": "pointerMove", "duration": 0, "x": x1, "y": y1},
+                {"type": "pointerDown", "button": 0},
+                {"type": "pointerMove", "duration": ms, "x": x2, "y": y2},
+                {"type": "pointerUp", "button": 0},
+            ],
+        }]
+        try:
+            return self._post(f"{self._s()}/actions", {"actions": actions})
+        except Exception:
+            # Fall back to legacy drag if W3C actions not supported
+            return self._post(f"{self._s()}/wda/dragfromtoforduration", {
+                "fromX": x1, "fromY": y1,
+                "toX": x2, "toY": y2,
+                "duration": duration,
+            })
 
     def scroll_down(self, amount: int = 300) -> dict:
         """Scroll down by pixel amount."""
