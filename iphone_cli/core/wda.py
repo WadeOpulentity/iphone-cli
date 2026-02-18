@@ -118,8 +118,23 @@ class WDAClient:
     # ------------------------------------------------------------------
 
     def tap(self, x: int, y: int) -> dict:
-        """Tap at coordinates."""
-        return self._post(f"{self._s()}/wda/tap", {"x": x, "y": y})
+        """Tap at coordinates using W3C actions for a precise, quick touch."""
+        actions = [{
+            "type": "pointer",
+            "id": "finger1",
+            "parameters": {"pointerType": "touch"},
+            "actions": [
+                {"type": "pointerMove", "duration": 0, "x": x, "y": y},
+                {"type": "pointerDown", "button": 0},
+                {"type": "pause", "duration": 30},
+                {"type": "pointerUp", "button": 0},
+            ],
+        }]
+        try:
+            return self._post(f"{self._s()}/actions", {"actions": actions})
+        except Exception:
+            # Fall back to legacy WDA tap if W3C actions not supported
+            return self._post(f"{self._s()}/wda/tap", {"x": x, "y": y})
 
     def double_tap(self, x: int, y: int) -> dict:
         """Double tap at coordinates."""

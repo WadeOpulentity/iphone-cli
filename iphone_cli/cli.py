@@ -274,6 +274,87 @@ def find(ctx, text: str):
 
 
 # ------------------------------------------------------------------
+# Scroll to element
+# ------------------------------------------------------------------
+
+@main.command(name="scroll-to")
+@click.argument("text")
+@click.option("--tap/--no-tap", default=True, help="Tap the element once found (default: tap)")
+@click.option("--max-scrolls", default=15, help="Maximum scroll attempts")
+@click.pass_context
+def scroll_to(ctx, text: str, tap: bool, max_scrolls: int):
+    """Scroll until an element with matching text is visible, then tap it.
+
+    Usage:
+        iphone scroll-to "Post your reply"
+        iphone scroll-to "Settings" --no-tap
+    """
+    import time
+
+    wda = get_wda(ctx.obj["wda_url"])
+    VISIBLE_TOP = 150
+    VISIBLE_BOTTOM = 750
+
+    for attempt in range(max_scrolls + 1):
+        results = wda.find_by_text(text)
+
+        if not results:
+            # Not in tree at all -- scroll down and retry
+            if attempt < max_scrolls:
+                wda.swipe(200, 600, 200, 200, duration=0.3)
+                time.sleep(0.3)
+                continue
+            output_json({"error": f"'{text}' not found after {max_scrolls} scrolls"})
+            return
+
+        # Find best match (closest to or inside visible area)
+        best = None
+        best_dist = float("inf")
+        for m in results:
+            cy = m.get("center", [0, 0])[1]
+            if VISIBLE_TOP <= cy <= VISIBLE_BOTTOM:
+                best = m
+                best_dist = 0
+                break
+            dist = min(abs(cy - VISIBLE_TOP), abs(cy - VISIBLE_BOTTOM))
+            if dist < best_dist:
+                best = m
+                best_dist = dist
+
+        if not best:
+            best = results[0]
+
+        cx, cy = best["center"]
+
+        # Already visible -- done
+        if VISIBLE_TOP <= cy <= VISIBLE_BOTTOM:
+            _save_last_find([best])
+            if tap:
+                wda.tap(cx, cy)
+                output_json({
+                    "status": "found_and_tapped",
+                    "label": best.get("label", text)[:100],
+                    "center": [cx, cy],
+                })
+            else:
+                output_json({
+                    "status": "found",
+                    "label": best.get("label", text)[:100],
+                    "center": [cx, cy],
+                })
+            return
+
+        # Off-screen -- scroll toward it
+        if cy < VISIBLE_TOP:
+            wda.swipe(200, 200, 200, 600, duration=0.3)
+        else:
+            wda.swipe(200, 600, 200, 200, duration=0.3)
+        time.sleep(0.3)
+
+    output_json({"error": f"Could not bring '{text}' into view after {max_scrolls} scrolls"})
+
+
+# ------------------------------------------------------------------
 # App management
 # ------------------------------------------------------------------
 
