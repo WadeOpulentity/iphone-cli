@@ -90,6 +90,20 @@ class CompanionClient:
     def contacts_search(self, query: str) -> list[dict]:
         return self._get("/api/contacts", params={"q": query})
 
+    def contacts_create(
+        self,
+        first_name: str,
+        last_name: str,
+        phone_numbers: list[str] | None = None,
+        email_addresses: list[str] | None = None,
+    ) -> dict:
+        data = {"first_name": first_name, "last_name": last_name}
+        if phone_numbers:
+            data["phone_numbers"] = phone_numbers
+        if email_addresses:
+            data["email_addresses"] = email_addresses
+        return self._post("/api/contacts", data=data)
+
     # ------------------------------------------------------------------
     # Calendar
     # ------------------------------------------------------------------
@@ -100,12 +114,51 @@ class CompanionClient:
     def calendar_reminders(self) -> list[dict]:
         return self._get("/api/calendar/reminders")
 
+    def calendar_create_event(
+        self,
+        title: str,
+        start_date: str,
+        end_date: str,
+        location: str | None = None,
+        notes: str | None = None,
+        calendar_name: str | None = None,
+    ) -> dict:
+        data: dict = {"title": title, "start_date": start_date, "end_date": end_date}
+        if location:
+            data["location"] = location
+        if notes:
+            data["notes"] = notes
+        if calendar_name:
+            data["calendar_name"] = calendar_name
+        return self._post("/api/calendar/events", data=data)
+
+    def calendar_create_reminder(
+        self,
+        title: str,
+        due_date: str | None = None,
+        notes: str | None = None,
+        list_name: str | None = None,
+    ) -> dict:
+        data: dict = {"title": title}
+        if due_date:
+            data["due_date"] = due_date
+        if notes:
+            data["notes"] = notes
+        if list_name:
+            data["list_name"] = list_name
+        return self._post("/api/calendar/reminders", data=data)
+
     # ------------------------------------------------------------------
     # Notifications
     # ------------------------------------------------------------------
 
     def notifications_list(self) -> list[dict]:
         return self._get("/api/notifications")
+
+    def notifications_schedule(self, title: str, body: str, trigger_date: str) -> dict:
+        return self._post("/api/notifications/schedule", data={
+            "title": title, "body": body, "trigger_date": trigger_date,
+        })
 
     # ------------------------------------------------------------------
     # Shortcuts
@@ -116,6 +169,13 @@ class CompanionClient:
 
     def shortcut_run(self, name: str) -> dict:
         return self._post("/api/shortcuts/run", data={"name": name})
+
+    # ------------------------------------------------------------------
+    # Open URL
+    # ------------------------------------------------------------------
+
+    def open_url(self, url: str) -> dict:
+        return self._post("/api/open-url", data={"url": url})
 
     # ------------------------------------------------------------------
     # Status / ping

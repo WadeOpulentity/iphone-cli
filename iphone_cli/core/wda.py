@@ -303,6 +303,18 @@ class WDAClient:
         return results
 
     # ------------------------------------------------------------------
+    # URL opening
+    # ------------------------------------------------------------------
+
+    def open_url(self, url: str) -> dict:
+        """Open a URL on the device (any URL scheme: https, sms, tel, mailto, etc.).
+
+        Uses WDA's /url endpoint which calls XCUIDevice to open the URL
+        at the device level — works regardless of which app is in the foreground.
+        """
+        return self._post(f"{self._s()}/url", {"url": url})
+
+    # ------------------------------------------------------------------
     # App management
     # ------------------------------------------------------------------
 

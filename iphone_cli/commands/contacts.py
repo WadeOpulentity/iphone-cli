@@ -38,3 +38,24 @@ def search(ctx, query: str):
     except CompanionNotAvailableError as e:
         output_json({"error": str(e)})
         raise SystemExit(1)
+
+
+@contacts.command()
+@click.option("--first", required=True, help="First name")
+@click.option("--last", required=True, help="Last name")
+@click.option("--phone", multiple=True, help="Phone number (can specify multiple)")
+@click.option("--email", multiple=True, help="Email address (can specify multiple)")
+@click.pass_context
+def create(ctx, first: str, last: str, phone: tuple, email: tuple):
+    """Create a new contact."""
+    from ..companion import CompanionClient, CompanionNotAvailableError
+    try:
+        client = CompanionClient(url=ctx.obj.get("companion_url"))
+        output_json(client.contacts_create(
+            first, last,
+            list(phone) if phone else None,
+            list(email) if email else None,
+        ))
+    except CompanionNotAvailableError as e:
+        output_json({"error": str(e)})
+        raise SystemExit(1)

@@ -270,6 +270,47 @@ def find(ctx, text: str):
         print(json.dumps({"query": text, "matches": results}, default=str))
 
 
+@main.command(name="tap-text")
+@click.argument("text")
+@click.pass_context
+def tap_text_cmd(ctx, text: str):
+    """Find an element by text and tap it in one shot.
+
+    Faster than separate find + tap — single round trip.
+    Finds the best on-screen match and taps its center.
+    """
+    wda = get_wda(ctx.obj["wda_url"])
+    results = wda.find_by_text(text)
+
+    if not results:
+        output_json({"error": f"No element found matching '{text}'"})
+        return
+
+    # Pick best on-screen match (prefer StaticText/Button over Image)
+    VISIBLE_TOP, VISIBLE_BOTTOM = 150, 750
+    text_types = ("StaticText", "Button", "Link")
+    text_results = [
+        m for m in results
+        if m.get("type", "").replace("XCUIElementType", "") in text_types
+    ]
+    pool = text_results if text_results else results
+
+    # Prefer elements already on screen
+    on_screen = [
+        m for m in pool
+        if m.get("center") and VISIBLE_TOP <= m["center"][1] <= VISIBLE_BOTTOM
+    ]
+    best = (on_screen or pool)[0]
+    cx, cy = best["center"]
+
+    wda.tap(cx, cy)
+    output_json({
+        "status": "tapped",
+        "label": best.get("label", text)[:100],
+        "center": [cx, cy],
+    })
+
+
 # ------------------------------------------------------------------
 # Scroll to element
 # ------------------------------------------------------------------
@@ -500,6 +541,48 @@ def clipboard(ctx, action: str, text: str | None):
             raise click.BadParameter("Text required for clipboard set")
         wda.set_clipboard(text)
         output_json({"action": "clipboard_set", "status": "ok"})
+
+
+# ------------------------------------------------------------------
+# Open URL (top-level convenience command)
+# ------------------------------------------------------------------
+
+@main.command(name="open-url")
+@click.argument("url")
+@click.pass_context
+def open_url(ctx, url: str):
+    """Open a URL on the iPhone. Works with any URL scheme.
+
+    Supports: https://, sms:, tel:, mailto:, shortcuts://, maps://, etc.
+    Tries WDA first (works regardless of foreground app), then falls back
+    to companion app.
+    """
+    import time
+
+    wda = get_wda(ctx.obj["wda_url"])
+
+    # Strategy 1: WDA open_url — device-level, no foreground requirement
+    try:
+        wda.open_url(url)
+        output_json({"url": url, "status": "opened", "via": "wda"})
+        return
+    except Exception:
+        pass
+
+    # Strategy 2: Companion API — bring companion to foreground first
+    try:
+        wda.launch_app("com.wadehunter.minime-companion")
+        time.sleep(0.5)
+    except Exception:
+        pass
+
+    from .companion import CompanionClient, CompanionNotAvailableError
+    try:
+        client = CompanionClient(url=ctx.obj.get("companion_url"))
+        output_json(client.open_url(url))
+    except CompanionNotAvailableError as e:
+        output_json({"error": str(e)})
+        raise SystemExit(1)
 
 
 # ------------------------------------------------------------------
