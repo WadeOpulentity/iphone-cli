@@ -39,11 +39,9 @@ def _load_last_find() -> list[dict]:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return []
-from rich.console import Console
-from rich.json import JSON as RichJSON
 from rich.table import Table
 
-console = Console()
+from .output import console, output_json
 
 
 def get_wda(url: str | None = None):
@@ -51,23 +49,22 @@ def get_wda(url: str | None = None):
     return WDAClient(url=url or os.environ.get("WDA_URL", "http://localhost:8100"))
 
 
-def output_json(data: dict | list):
-    """Standard JSON output for agent consumption."""
-    if sys.stdout.isatty():
-        console.print(RichJSON(json.dumps(data, indent=2, default=str)))
-    else:
-        print(json.dumps(data, default=str))
+def get_companion(url: str | None = None):
+    from .companion import CompanionClient
+    return CompanionClient(url=url or os.environ.get("COMPANION_URL"))
 
 
 @click.group()
 @click.option("--wda-url", envvar="WDA_URL", default="http://localhost:8100", help="WDA server URL")
 @click.option("--udid", envvar="IPHONE_UDID", default=None, help="Target device UDID")
+@click.option("--companion-url", envvar="COMPANION_URL", default=None, help="Companion app URL (auto-discovers via Bonjour if not set)")
 @click.pass_context
-def main(ctx, wda_url: str, udid: str | None):
+def main(ctx, wda_url: str, udid: str | None, companion_url: str | None):
     """iphone-cli: Give AI agents eyes and hands on any iPhone app."""
     ctx.ensure_object(dict)
     ctx.obj["wda_url"] = wda_url
     ctx.obj["udid"] = udid
+    ctx.obj["companion_url"] = companion_url
 
 
 # ------------------------------------------------------------------
@@ -556,8 +553,21 @@ def doctor(ctx):
             console.print(f"[red]✗ {e}[/red]")
             checks["screenshot"] = {"status": "error", "error": str(e)}
 
+    # Check companion app (optional)
+    console.print("Checking companion app...", end=" ")
+    try:
+        companion = get_companion(ctx.obj.get("companion_url"))
+        companion_status = companion.status()
+        console.print(f"[green]✓ {companion_status.get('version', 'connected')}[/green]")
+        checks["companion"] = {"status": "ok", "info": companion_status, "optional": True}
+    except Exception:
+        console.print("[dim]✗ not available (optional)[/dim]")
+        checks["companion"] = {"status": "unavailable", "optional": True}
+
     console.print()
-    all_ok = all(c.get("status") == "ok" for c in checks.values())
+    # Companion is optional — exclude from all_ok check
+    required = {k: v for k, v in checks.items() if not v.get("optional")}
+    all_ok = all(c.get("status") == "ok" for c in required.values())
     if all_ok:
         console.print("[bold green]All systems operational! 🚀[/bold green]")
     else:
@@ -632,15 +642,15 @@ def start(ctx, udid: str, team_id: str, port: int):
             "-destination", f"id={udid}",
             "-allowProvisioningUpdates",
             f"DEVELOPMENT_TEAM={team_id}",
-            "test-without-building",
+            "test",
         ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
     procs.append(wda_proc)
 
-    # Start port forward
-    time.sleep(3)
+    # Start port forward — give WDA time to build + launch
+    time.sleep(5)
     console.print("[bold]Starting port forward...[/bold]")
     fwd_proc = subprocess.Popen(
         ["pymobiledevice3", "usbmux", "forward", str(port), str(port)],
@@ -666,6 +676,27 @@ def start(ctx, udid: str, team_id: str, port: int):
 
     console.print("[bold red]Failed to start WDA after 30s.[/bold red]")
     cleanup()
+
+
+# ------------------------------------------------------------------
+# Companion app command groups
+# ------------------------------------------------------------------
+
+from .commands.health import health
+from .commands.shortcut import shortcut
+from .commands.location import location
+from .commands.contacts import contacts
+from .commands.calendar import calendar
+from .commands.notifications import notifications
+from .commands.companion import companion
+
+main.add_command(health)
+main.add_command(shortcut)
+main.add_command(location)
+main.add_command(contacts)
+main.add_command(calendar)
+main.add_command(notifications)
+main.add_command(companion)
 
 
 if __name__ == "__main__":
